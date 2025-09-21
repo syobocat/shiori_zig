@@ -1,0 +1,18 @@
+// SPDX-FileCopyrightText: NONE
+//
+// SPDX-License-Identifier: CC0-1.0
+
+.{
+    .name = .shiori,
+    .version = "0.0.0",
+    .fingerprint = 0xb9f4145ca63b683a,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSES",
+        "README.md",
+    },
+}
