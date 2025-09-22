@@ -27,7 +27,7 @@ fn request(body: []const u8) [:0]const u8 {
     defer req.deinit();
 
     const value = std.fmt.allocPrint(allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
-        return shiori.response.DEFAULT_ERROR_RESPONSE;
+        return shiori.response.OOM_ERROR_RESPONSE;
     };
 
     const resp = shiori.response.Response{

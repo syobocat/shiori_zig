@@ -10,7 +10,7 @@ const References = root.References;
 const XSstpPassThru = root.XSstpPassThru;
 const SecurityLevel = root.SecurityLevel;
 
-pub const DEFAULT_ERROR_RESPONSE = "SHIORI/3.0 500 Internal Server Error\r\nCharset: UTF-8\r\nSender: zSHIORI\r\n\r\n";
+pub const OOM_ERROR_RESPONSE = "SHIORI/3.0 500 Internal Server Error\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nErrorLevel: critical\r\nErrorDescription: Out of memory\r\n\r\n";
 
 pub const Status = enum(u16) {
     ok = 200,
@@ -63,7 +63,7 @@ pub const ResponseRaw = struct {
 
     /// レスポンスをレンダーします。OutOfMemoryの場合、既定のエラーレスポンスを返します。
     pub fn render(self: @This(), allocator: std.mem.Allocator) [:0]const u8 {
-        return self.renderFailable(allocator) catch DEFAULT_ERROR_RESPONSE;
+        return self.renderFailable(allocator) catch OOM_ERROR_RESPONSE;
     }
 };
 
@@ -177,7 +177,7 @@ pub const Response = struct {
 
     /// レスポンスをレンダーします。OutOfMemoryの場合、既定のエラーレスポンスを返します。
     pub fn render(self: @This(), gpa: std.mem.Allocator) [:0]const u8 {
-        return self.renderFailable(gpa) catch DEFAULT_ERROR_RESPONSE;
+        return self.renderFailable(gpa) catch OOM_ERROR_RESPONSE;
     }
 };
 
@@ -203,5 +203,5 @@ test "Test OutOfMemory response" {
 
     const rendered = resp.render(allocator);
 
-    try std.testing.expectEqualStrings(DEFAULT_ERROR_RESPONSE, rendered);
+    try std.testing.expectEqualStrings(OOM_ERROR_RESPONSE, rendered);
 }
