@@ -17,20 +17,15 @@ const shiori = @import("shiori");
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const root_allocator = gpa.allocator();
 
-fn request(body: []const u8) [:0]const u8 {
-    var arena = std.heap.ArenaAllocator.init(root_allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
-
+fn request(body: []const u8, allocator: std.mem.Allocator) [:0]const u8 {
     var req = shiori.request.parse(body, allocator) catch {
         const resp = shiori.response.Response{
             .status = .bad_request,
         };
-        return resp.render(root_allocator);
+        return resp.render(allocator);
     };
 
-    const value = std.fmt.allocPrint(root_allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
+    const value = std.fmt.allocPrint(allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
         return shiori.response.OOM_ERROR_RESPONSE;
     };
 
@@ -38,7 +33,7 @@ fn request(body: []const u8) [:0]const u8 {
         .status = .ok,
         .value = value,
     };
-    return resp.render(root_allocator);
+    return resp.render(allocator);
 }
 ```
 
