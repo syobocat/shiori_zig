@@ -27,10 +27,10 @@ fn request(body: []const u8) [:0]const u8 {
         const resp = shiori.response.Response{
             .status = .bad_request,
         };
-        return resp.render(allocator);
+        return resp.render(root_allocator);
     };
 
-    const value = std.fmt.allocPrint(allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
+    const value = std.fmt.allocPrint(root_allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
         return shiori.response.OOM_ERROR_RESPONSE;
     };
 
@@ -38,7 +38,7 @@ fn request(body: []const u8) [:0]const u8 {
         .status = .ok,
         .value = value,
     };
-    return resp.render(allocator);
+    return resp.render(root_allocator);
 }
 ```
 
