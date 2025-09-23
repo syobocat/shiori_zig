@@ -181,6 +181,19 @@ pub const Response = struct {
     }
 };
 
+test "Test default response rendering" {
+    const allocator = std.testing.allocator;
+
+    var resp = Response{};
+
+    const expected = "SHIORI/3.0 204 No Content\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nSecurityLevel: local\r\n\r\n";
+
+    const rendered = try resp.renderFailable(allocator);
+    defer allocator.free(rendered);
+
+    try std.testing.expectEqualStrings(expected, rendered);
+}
+
 test "Test simple response rendering" {
     const allocator = std.testing.allocator;
 
