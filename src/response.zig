@@ -95,7 +95,7 @@ pub const Response = struct {
     sender: []const u8 = "zSHIORI",
     value: ?[]const u8 = null,
     value_notify: ?[]const u8 = null,
-    security_level: ?SecurityLevel = .local,
+    security_level: ?SecurityLevel = null,
     marker: ?[]const u8 = null,
     errors: ?[]const Error = null,
     balloon_offset: ?BalloonOffset = null,
@@ -186,7 +186,7 @@ test "Test default response rendering" {
 
     var resp = Response{};
 
-    const expected = "SHIORI/3.0 204 No Content\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nSecurityLevel: local\r\n\r\n";
+    const expected = "SHIORI/3.0 204 No Content\r\nCharset: UTF-8\r\nSender: zSHIORI\r\n\r\n";
 
     const rendered = try resp.renderFailable(allocator);
     defer allocator.free(rendered);
@@ -202,7 +202,7 @@ test "Test simple response rendering" {
         .value = "\\1\\s[10]\\0\\s[0]\\e",
     };
 
-    const expected = "SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nValue: \\1\\s[10]\\0\\s[0]\\e\r\nSecurityLevel: local\r\n\r\n";
+    const expected = "SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nValue: \\1\\s[10]\\0\\s[0]\\e\r\n\r\n";
 
     const rendered = try resp.renderFailable(allocator);
     defer allocator.free(rendered);
