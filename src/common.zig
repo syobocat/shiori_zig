@@ -4,9 +4,9 @@
 
 const std = @import("std");
 
-pub const Headers = std.StringArrayHashMap([]const u8);
-pub const XSstpPassThru = std.StringArrayHashMap([]const u8);
-pub const References = std.AutoArrayHashMap(u64, []const u8);
+pub const Headers = std.StringArrayHashMapUnmanaged([]const u8);
+pub const XSstpPassThru = std.StringArrayHashMapUnmanaged([]const u8);
+pub const References = std.AutoArrayHashMapUnmanaged(u64, []const u8);
 
 pub const SecurityLevel = enum {
     local,

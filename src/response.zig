@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: UPL-1.0
 
 const std = @import("std");
-const root = @import("root.zig");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
-const Headers = root.Headers;
-const References = root.References;
-const XSstpPassThru = root.XSstpPassThru;
-const SecurityLevel = root.SecurityLevel;
+const common = @import("common.zig");
+const Headers = common.Headers;
+const References = common.References;
+const XSstpPassThru = common.XSstpPassThru;
+const SecurityLevel = common.SecurityLevel;
 
 pub const OOM_ERROR_RESPONSE = "SHIORI/3.0 500 Internal Server Error\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nErrorLevel: critical\r\nErrorDescription: Out of memory\r\n\r\n";
 
@@ -20,7 +22,7 @@ pub const Status = enum(u16) {
     bad_request = 400,
     internal_server_error = 500,
 
-    fn print(self: @This()) []const u8 {
+    fn msg(self: @This()) []const u8 {
         return switch (self) {
             .ok => "OK",
             .no_content => "No Content",
@@ -30,35 +32,40 @@ pub const Status = enum(u16) {
             .internal_server_error => "Internal Server Error",
         };
     }
+
+    pub fn format(self: @This(), writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("{d} {s}", .{ self, self.msg() });
+    }
 };
 
 pub const ResponseRaw = struct {
-    status: Status,
-    headers: Headers,
+    status: Status = .no_content,
+    headers: Headers = .empty,
 
-    pub fn deinit(self: *@This()) void {
-        self.headers.deinit();
+    pub fn deinit(self: *@This(), allocator: Allocator) void {
+        self.headers.deinit(allocator);
     }
 
-    /// レスポンスをレンダーします。OutOfMemoryの場合エラーを委託します。自前でエラーハンドリングをしたい場合に使用します。
-    pub fn renderFailable(self: @This(), allocator: std.mem.Allocator) error{OutOfMemory}![:0]const u8 {
-        var buffer = try std.ArrayList(u8).initCapacity(allocator, 0);
-        defer buffer.deinit(allocator);
+    pub fn format(self: @This(), writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("SHIORI/3.0 {f}\r\n", .{self.status});
 
-        const writer = buffer.writer(allocator);
-
-        try writer.print("SHIORI/3.0 {d} {s}\r\n", .{ self.status, self.status.print() });
-
-        var iterator = self.headers.iterator();
-        while (iterator.next()) |header| {
+        var iter = self.headers.iterator();
+        while (iter.next()) |header| {
             try writer.print("{s}: {s}\r\n", .{ header.key_ptr.*, header.value_ptr.* });
         }
 
         try writer.writeAll("\r\n");
+    }
 
-        const response = try buffer.toOwnedSliceSentinel(allocator, 0);
+    /// レスポンスをレンダーします。OutOfMemoryの場合エラーを委託します。
+    pub fn renderFailable(self: @This(), allocator: Allocator) error{OutOfMemory}![:0]const u8 {
+        var awriter: Io.Writer.Allocating = .init(allocator);
+        defer awriter.deinit();
+        const writer = &awriter.writer;
 
-        return response;
+        writer.print("{f}", .{self}) catch return error.OutOfMemory;
+
+        return try awriter.toOwnedSliceSentinel(0);
     }
 
     /// レスポンスをレンダーします。OutOfMemoryの場合、既定のエラーレスポンスを返します。
@@ -84,8 +91,8 @@ pub const BalloonOffset = struct {
     x: u32,
     y: u32,
 
-    fn print(self: @This(), allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
-        return try std.fmt.allocPrint(allocator, "({d},{d})", .{ self.x, self.y });
+    pub fn format(self: @This(), writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("({d},{d})", .{ self.x, self.y });
     }
 };
 
@@ -104,87 +111,102 @@ pub const Response = struct {
     marker_send: ?[]const u8 = null,
     x_sstp_passthru: ?XSstpPassThru = null,
 
-    /// `references`、もしくは`x_sstp_passthru`を使用した場合にのみ必要です。
-    pub fn deinit(self: *@This()) void {
+    /// `references`と`x_sstp_passthru`を解放します。どちらも`null`の場合noopです。
+    pub fn deinit(self: @This(), allocator: Allocator) void {
         if (self.references) |*references| {
-            references.deinit();
+            references.deinit(allocator);
         }
         if (self.x_sstp_passthru) |*x_sstp_passthru| {
-            x_sstp_passthru.deinit();
+            x_sstp_passthru.deinit(allocator);
         }
     }
 
-    /// レスポンスをレンダーします。OutOfMemoryの場合エラーを委託します。自前でエラーハンドリングをしたい場合に使用します。
-    pub fn renderFailable(self: @This(), gpa: std.mem.Allocator) error{OutOfMemory}![:0]const u8 {
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        defer arena.deinit();
-        const allocator = arena.allocator();
-
-        var response = ResponseRaw{
-            .status = self.status,
-            .headers = Headers.init(allocator),
-        };
-
-        try response.headers.put("Charset", self.charset);
-        try response.headers.put("Sender", self.sender);
+    pub fn format(self: @This(), writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("SHIORI/3.0 {f}\r\n", .{self.status});
+        try writer.print("Charset: {s}\r\n", .{self.charset});
+        try writer.print("Sender: {s}\r\n", .{self.sender});
         if (self.value) |value| {
-            try response.headers.put("Value", value);
+            try writer.print("Value: {s}\r\n", .{value});
         }
         if (self.value_notify) |value_notify| {
-            try response.headers.put("ValueNotify", value_notify);
+            try writer.print("ValueNotify: {s}\r\n", .{value_notify});
         }
         if (self.security_level) |security_level| {
-            try response.headers.put("SecurityLevel", @tagName(security_level));
+            try writer.print("SecurityLevel: {s}\r\n", .{@tagName(security_level)});
         }
         if (self.marker) |marker| {
-            try response.headers.put("Marker", marker);
+            try writer.print("Marker: {s}\r\n", .{marker});
         }
         if (self.errors) |errors| {
-            var error_level = try std.ArrayList([]const u8).initCapacity(allocator, errors.len);
-            var error_description = try std.ArrayList([]const u8).initCapacity(allocator, errors.len);
-            for (errors) |err| {
-                error_level.appendAssumeCapacity(@tagName(err.level));
-                error_description.appendAssumeCapacity(err.description);
+            if (errors.len > 0) {
+                try writer.writeAll("ErrorLevel: ");
+                for (errors, 0..) |err, i| {
+                    try writer.print("{s}", .{@tagName(err.level)});
+                    if (i < errors.len - 1) {
+                        try writer.writeByte('\x01');
+                    }
+                }
+                try writer.writeAll("\r\n");
+                try writer.writeAll("ErrorDescription: ");
+                for (errors, 0..) |err, i| {
+                    try writer.print("{s}", .{err.description});
+                    if (i < errors.len - 1) {
+                        try writer.writeByte('\x01');
+                    }
+                }
+                try writer.writeAll("\r\n");
             }
-
-            try response.headers.put("ErrorLevel", try std.mem.join(allocator, "\x01", error_level.items));
-            try response.headers.put("ErrorDescription", try std.mem.join(allocator, "\x01", error_description.items));
         }
-        if (self.balloon_offset) |balloon_offset| {
-            try response.headers.put("BalloonOffset", try balloon_offset.print(allocator));
+        if (self.balloon_offset) |ballon_offset| {
+            try writer.print("BalloonOffset: {f}\r\n", .{ballon_offset});
         }
         if (self.references) |references| {
             var iterator = references.iterator();
             while (iterator.next()) |reference| {
-                try response.headers.put(try std.fmt.allocPrint(allocator, "Reference{d}", .{reference.key_ptr.*}), reference.value_ptr.*);
+                try writer.print("Reference{d}: {s}\r\n", .{ reference.key_ptr.*, reference.value_ptr.* });
             }
         }
         if (self.age) |age| {
-            try response.headers.put("Age", try std.fmt.allocPrint(allocator, "{d}", .{age}));
+            try writer.print("Age: {d}\r\n", .{age});
         }
         if (self.marker_send) |marker_send| {
-            try response.headers.put("MarkerSend", marker_send);
+            try writer.print("MarkerSend: {s}\r\n", .{marker_send});
         }
         if (self.x_sstp_passthru) |x_sstp_passthru| {
             var iterator = x_sstp_passthru.iterator();
             while (iterator.next()) |reference| {
-                try response.headers.put(try std.fmt.allocPrint(allocator, "X-SSTP-PassThru-{s}", .{reference.key_ptr.*}), reference.value_ptr.*);
+                try writer.print("X-SSTP-PassThru-{s}: {s}\r\n", .{ reference.key_ptr.*, reference.value_ptr.* });
             }
         }
 
-        return try response.renderFailable(gpa);
+        try writer.writeAll("\r\n");
+    }
+
+    /// レスポンスをレンダーします。OutOfMemoryの場合エラーを委託します。
+    pub fn renderFailable(self: @This(), allocator: Allocator) error{OutOfMemory}![:0]const u8 {
+        var awriter: Io.Writer.Allocating = .init(allocator);
+        defer awriter.deinit();
+        const writer = &awriter.writer;
+
+        writer.print("{f}", .{self}) catch return error.OutOfMemory;
+
+        return try awriter.toOwnedSliceSentinel(0);
     }
 
     /// レスポンスをレンダーします。OutOfMemoryの場合、既定のエラーレスポンスを返します。
-    pub fn render(self: @This(), gpa: std.mem.Allocator) [:0]const u8 {
-        return self.renderFailable(gpa) catch OOM_ERROR_RESPONSE;
+    pub fn render(self: @This(), allocator: std.mem.Allocator) [:0]const u8 {
+        return self.renderFailable(allocator) catch OOM_ERROR_RESPONSE;
     }
 };
 
-test "Test default response rendering" {
+test "Test ResponseRaw rendering" {
     const allocator = std.testing.allocator;
 
-    var resp = Response{};
+    var resp: ResponseRaw = .{};
+    defer resp.deinit(allocator);
+
+    try resp.headers.put(allocator, "Charset", "UTF-8");
+    try resp.headers.put(allocator, "Sender", "zSHIORI");
 
     const expected = "SHIORI/3.0 204 No Content\r\nCharset: UTF-8\r\nSender: zSHIORI\r\n\r\n";
 
@@ -194,15 +216,60 @@ test "Test default response rendering" {
     try std.testing.expectEqualStrings(expected, rendered);
 }
 
-test "Test simple response rendering" {
+test "Test default Response rendering" {
     const allocator = std.testing.allocator;
 
-    var resp = Response{
+    const resp: Response = .{};
+
+    const expected = "SHIORI/3.0 204 No Content\r\nCharset: UTF-8\r\nSender: zSHIORI\r\n\r\n";
+
+    const rendered = try resp.renderFailable(allocator);
+    defer allocator.free(rendered);
+
+    try std.testing.expectEqualStrings(expected, rendered);
+}
+
+test "Test simple Response rendering" {
+    const allocator = std.testing.allocator;
+
+    const resp = Response{
         .status = .ok,
         .value = "\\1\\s[10]\\0\\s[0]\\e",
     };
 
     const expected = "SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nValue: \\1\\s[10]\\0\\s[0]\\e\r\n\r\n";
+
+    const rendered = try resp.renderFailable(allocator);
+    defer allocator.free(rendered);
+
+    try std.testing.expectEqualStrings(expected, rendered);
+}
+
+test "Test complex Response rendering" {
+    const allocator = std.testing.allocator;
+
+    var references: References = .empty;
+    defer references.deinit(allocator);
+
+    try references.put(allocator, 0, "GhostName");
+    try references.put(allocator, 1, "Information");
+
+    const resp = Response{
+        .status = .ok,
+        .value = "\\1\\s[10]\\0\\s[0]\\e",
+        .security_level = .local,
+        .marker = "foo",
+        .errors = &.{
+            .{ .level = .info, .description = "This is info" },
+            .{ .level = .notice, .description = "This is notice" },
+        },
+        .balloon_offset = .{ .x = 1, .y = 2 },
+        .references = references,
+        .age = 123,
+        .marker_send = "bar",
+    };
+
+    const expected = "SHIORI/3.0 200 OK\r\nCharset: UTF-8\r\nSender: zSHIORI\r\nValue: \\1\\s[10]\\0\\s[0]\\e\r\nSecurityLevel: local\r\nMarker: foo\r\nErrorLevel: info\x01notice\r\nErrorDescription: This is info\x01This is notice\r\nBalloonOffset: (1,2)\r\nReference0: GhostName\r\nReference1: Information\r\nAge: 123\r\nMarkerSend: bar\r\n\r\n";
 
     const rendered = try resp.renderFailable(allocator);
     defer allocator.free(rendered);

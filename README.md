@@ -14,18 +14,15 @@ Zig用のSHIORI/3.0パーサ
 const std = @import("std");
 const shiori = @import("shiori");
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const root_allocator = gpa.allocator();
-
-fn request(body: []const u8, allocator: std.mem.Allocator) [:0]const u8 {
-    var req = shiori.request.parse(body, allocator) catch {
+fn request(body: []const u8, arena: std.mem.Allocator) [:0]const u8 {
+    var req = shiori.request.parse(arena, body) catch {
         const resp = shiori.response.Response{
             .status = .bad_request,
         };
-        return resp.render(allocator);
+        return resp.render(arena);
     };
 
-    const value = std.fmt.allocPrint(allocator, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
+    const value = std.fmt.allocPrint(arena, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
         return shiori.response.OOM_ERROR_RESPONSE;
     };
 
@@ -33,7 +30,7 @@ fn request(body: []const u8, allocator: std.mem.Allocator) [:0]const u8 {
         .status = .ok,
         .value = value,
     };
-    return resp.render(allocator);
+    return resp.render(arena);
 }
 ```
 
