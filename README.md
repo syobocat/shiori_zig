@@ -14,7 +14,7 @@ Zig用のSHIORI/3.0パーサ
 const std = @import("std");
 const shiori = @import("shiori");
 
-fn request(body: []const u8, arena: std.mem.Allocator) [:0]const u8 {
+fn request(arena: std.mem.Allocator, body: []const u8) [:0]const u8 {
     var req = shiori.request.parse(arena, body) catch {
         const resp = shiori.response.Response{
             .status = .bad_request,
