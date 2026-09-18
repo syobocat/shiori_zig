@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 SyoBoN <syobon@syobon.net>
+// SPDX-FileCopyrightText: 2025-2026 SyoBoN <syobon@syobon.net>
 //
 // SPDX-License-Identifier: UPL-1.0
 
@@ -12,166 +12,24 @@ const References = common.References;
 const XSstpPassThru = common.XSstpPassThru;
 const SecurityLevel = common.SecurityLevel;
 
-pub const ParseError = error{
-    OutOfMemory,
-    UnsupportedProtocol,
-    InvalidBody,
-};
+method: Method,
+headers_raw: Headers,
 
-pub const Method = enum {
-    get,
-    notify,
-};
+sender: []const u8,
+id: []const u8,
+references: References,
 
-pub const RequestRaw = struct {
-    method: Method,
-    headers: Headers,
-    references: References,
-    x_sstp_passthru: XSstpPassThru,
+// 拡張
+charset: ?[]const u8,
+security_level: ?SecurityLevel,
+sender_type: ?SenderType,
+security_origin: ?[]const u8,
+status: ?Status,
+base_id: ?[]const u8,
+x_sstp_passthru: XSstpPassThru,
 
-    pub fn deinit(self: *@This(), allocator: Allocator) void {
-        self.headers.deinit(allocator);
-        self.references.deinit(allocator);
-        self.x_sstp_passthru.deinit(allocator);
-    }
-};
-
-pub fn parseRaw(allocator: Allocator, body: []const u8) ParseError!RequestRaw {
-    var split = std.mem.tokenizeSequence(u8, body, "\r\n");
-
-    const method_line = split.next() orelse return ParseError.InvalidBody;
-
-    const method: Method = if (std.mem.startsWith(u8, method_line, "GET SHIORI/3.0"))
-        .get
-    else if (std.mem.startsWith(u8, body, "NOTIFY SHIORI/3.0"))
-        .notify
-    else
-        return ParseError.UnsupportedProtocol;
-
-    var headers: Headers = .empty;
-    var references: References = .empty;
-    var x_sstp_passthru: XSstpPassThru = .empty;
-    while (split.next()) |header| {
-        const colon_index = std.mem.indexOfScalar(u8, header, ':') orelse continue;
-
-        // ヘッダの形式は「HTTPと全く同じ」と述べられており、
-        // HTTPではvalueの前後に空白が許容され、keyの前後には許されない
-        const key = header[0..colon_index];
-        const value_untrimmed = header[colon_index + 1 ..];
-
-        const value = std.mem.trim(u8, value_untrimmed, &std.ascii.whitespace);
-
-        if (std.mem.startsWith(u8, key, "Reference")) {
-            const refnum = std.mem.trimStart(u8, key, "Reference");
-            const parsed = std.fmt.parseUnsigned(u64, refnum, 10) catch continue;
-            try references.put(allocator, parsed, value);
-        } else if (std.mem.startsWith(u8, key, "X-SSTP-PassThuru-")) {
-            const sstp_key = std.mem.trimStart(u8, key, "X-SSTP-PassThuru-");
-            try x_sstp_passthru.put(allocator, sstp_key, value);
-        } else {
-            try headers.put(allocator, key, value);
-        }
-    }
-
-    return .{
-        .method = method,
-        .headers = headers,
-        .references = references,
-        .x_sstp_passthru = x_sstp_passthru,
-    };
-}
-
-const SenderTypeTag = enum {
-    internal,
-    external,
-    sakuraapi,
-    embed,
-    raise,
-    property,
-    plugin,
-    sstp,
-    communicate,
-};
-
-pub const SenderType = packed struct {
-    internal: bool = false,
-    external: bool = false,
-    sakuraapi: bool = false,
-    embed: bool = false,
-    raise: bool = false,
-    property: bool = false,
-    plugin: bool = false,
-    sstp: bool = false,
-    communicate: bool = false,
-};
-
-pub const Status = struct {
-    flags: StatusFlags = .{},
-    opening: ?[]const []const u8 = null,
-    baloon: ?[]Baloon = null,
-};
-
-const StatusTag = enum {
-    talking,
-    choosing,
-    minimizing,
-    induction,
-    passive,
-    timecritical,
-    nouserbreak,
-    online,
-};
-
-const StatusFlags = packed struct {
-    talking: bool = false,
-    choosing: bool = false,
-    minimizing: bool = false,
-    induction: bool = false,
-    passive: bool = false,
-    timecritical: bool = false,
-    nouserbreak: bool = false,
-    online: bool = false,
-};
-
-const Baloon = struct {
-    character: u32,
-    baloon: u32,
-};
-
-pub const Request = struct {
-    method: Method,
-    headers_raw: Headers,
-
-    sender: []const u8,
-    id: []const u8,
-    references: References,
-
-    // 拡張
-    charset: ?[]const u8,
-    security_level: ?SecurityLevel,
-    sender_type: ?SenderType,
-    security_origin: ?[]const u8,
-    status: ?Status,
-    base_id: ?[]const u8,
-    x_sstp_passthru: XSstpPassThru,
-
-    pub fn deinit(self: *@This(), allocator: Allocator) void {
-        if (self.status) |status| {
-            if (status.opening) |opening| {
-                allocator.free(opening);
-            }
-            if (status.baloon) |baloon| {
-                allocator.free(baloon);
-            }
-        }
-        self.headers_raw.deinit(allocator);
-        self.references.deinit(allocator);
-        self.x_sstp_passthru.deinit(allocator);
-    }
-};
-
-pub fn parse(allocator: std.mem.Allocator, body: []const u8) ParseError!Request {
-    const raw = try parseRaw(allocator, body);
+pub fn parse(allocator: Allocator, body: []const u8) ParseError!@This() {
+    const raw: Raw = try .parse(allocator, body);
 
     const sender = raw.headers.get("Sender") orelse {
         return ParseError.InvalidBody;
@@ -278,11 +136,151 @@ pub fn parse(allocator: std.mem.Allocator, body: []const u8) ParseError!Request 
     };
 }
 
+pub fn deinit(self: *@This(), allocator: Allocator) void {
+    if (self.status) |status| {
+        if (status.opening) |opening| {
+            allocator.free(opening);
+        }
+        if (status.baloon) |baloon| {
+            allocator.free(baloon);
+        }
+    }
+    self.headers_raw.deinit(allocator);
+    self.references.deinit(allocator);
+    self.x_sstp_passthru.deinit(allocator);
+}
+
+pub const ParseError = error{
+    OutOfMemory,
+    UnsupportedProtocol,
+    InvalidBody,
+};
+
+pub const Method = enum {
+    get,
+    notify,
+};
+
+pub const Raw = struct {
+    method: Method,
+    headers: Headers,
+    references: References,
+    x_sstp_passthru: XSstpPassThru,
+
+    pub fn parse(allocator: Allocator, body: []const u8) ParseError!@This() {
+        var split = std.mem.tokenizeSequence(u8, body, "\r\n");
+
+        const method_line = split.next() orelse return ParseError.InvalidBody;
+
+        const method: Method = if (std.mem.startsWith(u8, method_line, "GET SHIORI/3.0"))
+            .get
+        else if (std.mem.startsWith(u8, body, "NOTIFY SHIORI/3.0"))
+            .notify
+        else
+            return ParseError.UnsupportedProtocol;
+
+        var headers: Headers = .empty;
+        var references: References = .empty;
+        var x_sstp_passthru: XSstpPassThru = .empty;
+        while (split.next()) |header| {
+            const colon_index = std.mem.indexOfScalar(u8, header, ':') orelse continue;
+
+            // ヘッダの形式は「HTTPと全く同じ」と述べられており、
+            // HTTPではvalueの前後に空白が許容され、keyの前後には許されない
+            const key = header[0..colon_index];
+            const value_untrimmed = header[colon_index + 1 ..];
+
+            const value = std.mem.trim(u8, value_untrimmed, &std.ascii.whitespace);
+
+            if (std.mem.startsWith(u8, key, "Reference")) {
+                const refnum = std.mem.trimStart(u8, key, "Reference");
+                const parsed = std.fmt.parseUnsigned(u64, refnum, 10) catch continue;
+                try references.put(allocator, parsed, value);
+            } else if (std.mem.startsWith(u8, key, "X-SSTP-PassThuru-")) {
+                const sstp_key = std.mem.trimStart(u8, key, "X-SSTP-PassThuru-");
+                try x_sstp_passthru.put(allocator, sstp_key, value);
+            } else {
+                try headers.put(allocator, key, value);
+            }
+        }
+
+        return .{
+            .method = method,
+            .headers = headers,
+            .references = references,
+            .x_sstp_passthru = x_sstp_passthru,
+        };
+    }
+
+    pub fn deinit(self: *@This(), allocator: Allocator) void {
+        self.headers.deinit(allocator);
+        self.references.deinit(allocator);
+        self.x_sstp_passthru.deinit(allocator);
+    }
+};
+
+const SenderTypeTag = enum {
+    internal,
+    external,
+    sakuraapi,
+    embed,
+    raise,
+    property,
+    plugin,
+    sstp,
+    communicate,
+};
+
+pub const SenderType = packed struct {
+    internal: bool = false,
+    external: bool = false,
+    sakuraapi: bool = false,
+    embed: bool = false,
+    raise: bool = false,
+    property: bool = false,
+    plugin: bool = false,
+    sstp: bool = false,
+    communicate: bool = false,
+};
+
+pub const Status = struct {
+    flags: StatusFlags = .{},
+    opening: ?[]const []const u8 = null,
+    baloon: ?[]Baloon = null,
+};
+
+const StatusTag = enum {
+    talking,
+    choosing,
+    minimizing,
+    induction,
+    passive,
+    timecritical,
+    nouserbreak,
+    online,
+};
+
+const StatusFlags = packed struct {
+    talking: bool = false,
+    choosing: bool = false,
+    minimizing: bool = false,
+    induction: bool = false,
+    passive: bool = false,
+    timecritical: bool = false,
+    nouserbreak: bool = false,
+    online: bool = false,
+};
+
+const Baloon = struct {
+    character: u32,
+    baloon: u32,
+};
+
 test "Test simple request parsing" {
     const allocator = std.testing.allocator;
 
     const body = "GET SHIORI/3.0\r\nCharset: UTF-8\r\nSender: SSP\r\nSenderType: internal,raise\r\nSecurityLevel: local\r\nStatus: choosing,balloon(0=0)\r\nID: OnFirstBoot\r\nBaseID: OnBoot\r\nReference0: 1\r\n\r\n";
-    var parsed = try parse(allocator, body);
+    var parsed: @This() = try .parse(allocator, body);
     defer parsed.deinit(allocator);
 
     try std.testing.expectEqualStrings("UTF-8", parsed.charset.?);

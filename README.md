@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025 SyoBoN <syobon@syobon.net>
+SPDX-FileCopyrightText: 2025-2026 SyoBoN <syobon@syobon.net>
 
 SPDX-License-Identifier: CC-BY-4.0
 -->
@@ -15,18 +15,18 @@ const std = @import("std");
 const shiori = @import("shiori");
 
 fn request(arena: std.mem.Allocator, body: []const u8) [:0]const u8 {
-    var req = shiori.request.parse(arena, body) catch {
-        const resp = shiori.response.Response{
+    var req = shiori.Request.parse(arena, body) catch {
+        const resp = shiori.Response{
             .status = .bad_request,
         };
         return resp.render(arena);
     };
 
     const value = std.fmt.allocPrint(arena, "\\0こんにちは、{s}ユーザーさん。\\e", .{ req.sender }) catch {
-        return shiori.response.OOM_ERROR_RESPONSE;
+        return shiori.Response.oom_error_response;
     };
 
-    const resp = shiori.response.Response{
+    const resp = shiori.Response{
         .status = .ok,
         .value = value,
     };
