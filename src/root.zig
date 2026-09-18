@@ -8,11 +8,10 @@ test {
 }
 
 const common = @import("common.zig");
-pub const request = @import("request.zig");
-pub const response = @import("response.zig");
-
 pub const Headers = common.Headers;
 pub const References = common.References;
 pub const XSstpPassThru = common.XSstpPassThru;
-
 pub const SecurityLevel = common.SecurityLevel;
+
+pub const Request = @import("Request.zig");
+pub const Response = @import("Response.zig");
