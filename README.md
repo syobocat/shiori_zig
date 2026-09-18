@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2025 SyoBoN <syobon@syobon.net>
+SPDX-FileCopyrightText: 2025-2026 SyoBoN <syobon@syobon.net>
 
 SPDX-License-Identifier: CC-BY-4.0
 -->
